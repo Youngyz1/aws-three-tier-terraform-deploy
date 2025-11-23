@@ -4,80 +4,104 @@ on:
   push:
     branches:
       - main
+
 permissions:
-    contents: write
-    id-token: write
+  contents: write
+  id-token: write
+
 jobs:
   deploy-iac:
-    runs-on: terraform
+    runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      DOMAIN_NAME: ofiliyoungyz.site
+      ROUTE53_ZONE_ID: ${{ secrets.ROUTE53_ZONE_ID }}
     steps:
-      - name: Checkout repository.
-        uses: actions/checkout@v2
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Setup GitHub OIDC
-        run: | 
-           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-           unzip awscliv2.zip
-           sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
-
-
-      - name: Configure AWS credentials using OIDC
+      # 2️⃣ Configure AWS credentials using OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            # Removed role-to-assume as requested
+
+      # 3️⃣ Setup Terraform
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
+        uses: hashicorp/setup-terraform@v2
         with:
-            cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_version: "1.7.6"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
+      # 4️⃣ Terraform Init, Format & Validate
+      - name: Terraform Init
+        run: terraform init
+      - name: Terraform Format
+        run: terraform fmt -check
+      - name: Terraform Validate
+        run: terraform validate
 
-
-      - name: 'Install tfsec for security scanning'
+      # 5️⃣ Security Scan
+      - name: tfsec Security Scan
         run: |
           curl -sLo tfsec https://github.com/aquasecurity/tfsec/releases/download/v1.28.11/tfsec-linux-amd64
           chmod +x tfsec
           ./tfsec --version
+          ./tfsec . || true
 
-      - name: 'Terraform Init'
-        run: terraform init
-
-      - name: 'Terraform Format'
-        run: terraform fmt
-
-      - name: 'Terraform Validate'
-        run: terraform validate
-
-
-      - name: 'tfsec Security Scan.'
-        run: ./tfsec . || true
-
+      # 6️⃣ Terraform Plan & Apply
       - name: Terraform Plan
-        run: terraform plan 
+        run: terraform plan
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
 
-      # - name: Terraform Apply.
-      #   run: terraform apply -auto-approve 
+      # 7️⃣ Configure kubectl
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.32.0'
 
-      # - name: 'install kubectl'
-      #   run: |
-      #     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-      #     chmod +x ./kubectl
-      #     sudo mv ./kubectl /usr/local/bin/kubectl
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
 
-      # - name: 'authenticate to EKS Cluster'
-      #   run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region us-east-1
-      
-      # - name: 'Deploying the ClusterIssuer to EKS'
-      #   run: kubectl apply -f ClusterIssuer.yaml
+      # 8️⃣ Get NGINX Ingress Load Balancer Hostname
+      - name: Get NGINX LB Hostname
+        id: get_lb
+        run: |
+          LB_HOST=$(kubectl get svc nginx-ingress-ingress-nginx-controller -n ingress-nginx \
+                     -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "LB_HOST=$LB_HOST" >> $GITHUB_ENV
+          echo "NGINX LB Hostname: $LB_HOST"
 
-      # - name: 'Deploying argocd ingress rule to EKS'
-      #   run: kubectl apply -f ingress-argocd.yaml -n argocd
+      # 9️⃣ Update Route 53 DNS Records
+      - name: Update Route 53 Records
+        run: |
+          for SUBDOMAIN in "" "bank" "bankapi" "argocd"; do
+            FULL_DOMAIN="${SUBDOMAIN:+$SUBDOMAIN.}${{ env.DOMAIN_NAME }}"
+            echo "Updating $FULL_DOMAIN -> $LB_HOST"
+            aws route53 change-resource-record-sets \
+              --hosted-zone-id "${{ env.ROUTE53_ZONE_ID }}" \
+              --change-batch "{
+                \"Changes\": [
+                  {
+                    \"Action\": \"UPSERT\",
+                    \"ResourceRecordSet\": {
+                      \"Name\": \"$FULL_DOMAIN\",
+                      \"Type\": \"CNAME\",
+                      \"TTL\": 300,
+                      \"ResourceRecords\": [{\"Value\": \"$LB_HOST\"}]
+                    }
+                  }
+                ]
+              }"
+          done
 
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve 
+      # 🔟 Deploy ArgoCD ingress
+      - name: Deploy ArgoCD ingress
+        run: kubectl apply -f ingress-argocd.yaml -n argocd
+
+      # 1️⃣1️⃣ Optional: Destroy resources (for testing only)
+      # - name: Terraform Destroy
+      #   run: terraform destroy -auto-approve
