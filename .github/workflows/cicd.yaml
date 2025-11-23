@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write  # required for OIDC
 
 jobs:
   deploy-iac:
@@ -15,7 +15,6 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       DOMAIN_NAME: ofiliyoungyz.site
-      ROUTE53_ZONE_ID: ${{ secrets.ROUTE53_ZONE_ID }}
     steps:
       # 1️⃣ Checkout repository
       - name: Checkout repository
@@ -33,7 +32,6 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: "1.7.6"
-          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       # 4️⃣ Terraform Init, Format & Validate
       - name: Terraform Init
@@ -54,6 +52,7 @@ jobs:
       # 6️⃣ Terraform Plan & Apply
       - name: Terraform Plan
         run: terraform plan
+
       # - name: Terraform Apply
       #   run: terraform apply -auto-approve
 
