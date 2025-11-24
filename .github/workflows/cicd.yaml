@@ -53,53 +53,34 @@ jobs:
       - name: Terraform Plan
         run: terraform plan
 
-      # - name: Terraform Apply
-      #   run: terraform apply -auto-approve
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
 
-      # # 7️⃣ Configure kubectl
-      # - name: Setup kubectl
-      #   uses: azure/setup-kubectl@v3
-      #   with:
-      #     version: 'v1.32.0'
+      - name: Install kubectl
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: |
+          if ! command -v kubectl &> /dev/null; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x ./kubectl
+            sudo mv ./kubectl /usr/local/bin/kubectl
+          else
+            echo "kubectl already installed"
+            kubectl version --client
+          fi
 
-      # - name: Update kubeconfig
-      #   run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+      - name: Update kubeconfig for EKS
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: aws eks update-kubeconfig --name production-eks-cluster --region ${{ secrets.AWS_REGION }}
 
-      # # 8️⃣ Get NGINX Ingress Load Balancer Hostname
-      # - name: Get NGINX LB Hostname
-      #   id: get_lb
-      #   run: |
-      #     LB_HOST=$(kubectl get svc nginx-ingress-ingress-nginx-controller -n ingress-nginx \
-      #                -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-      #     echo "LB_HOST=$LB_HOST" >> $GITHUB_ENV
-      #     echo "NGINX LB Hostname: $LB_HOST"
+      - name: Deploying the ClusterIssuer to EKS
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: kubectl apply -f ClusterIssuer.yaml
 
-      # # 9️⃣ Update Route 53 DNS Records
-      # - name: Update Route 53 Records
-      #   run: |
-      #     for SUBDOMAIN in "" "bank" "bankapi" "argocd"; do
-      #       FULL_DOMAIN="${SUBDOMAIN:+$SUBDOMAIN.}${{ env.DOMAIN_NAME }}"
-      #       echo "Updating $FULL_DOMAIN -> $LB_HOST"
-      #       aws route53 change-resource-record-sets \
-      #         --hosted-zone-id "${{ env.ROUTE53_ZONE_ID }}" \
-      #         --change-batch "{
-      #           \"Changes\": [
-      #             {
-      #               \"Action\": \"UPSERT\",
-      #               \"ResourceRecordSet\": {
-      #                 \"Name\": \"$FULL_DOMAIN\",
-      #                 \"Type\": \"CNAME\",
-      #                 \"TTL\": 300,
-      #                 \"ResourceRecords\": [{\"Value\": \"$LB_HOST\"}]
-      #               }
-      #             }
-      #           ]
-      #         }"
-      #     done
-
-      # # 🔟 Deploy ArgoCD ingress
-      # - name: Deploy ArgoCD ingress
-      #   run: kubectl apply -f ingress-argocd.yaml -n argocd
+      - name: Deploying argocd ingress rule to EKS
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: kubectl apply -f ingress-argocd.yaml -n argocd
 
       # # 1️⃣1️⃣ Optional: Destroy resources (for testing only)
       # # - name: Terraform Destroy
