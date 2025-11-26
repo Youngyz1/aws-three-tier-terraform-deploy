@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: smartcloud2022/edu:v1
+        image: Youngyz1/edu:v1
         ports:
         - containerPort: 80
 ---

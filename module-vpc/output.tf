@@ -1,6 +1,6 @@
 output "vpc_id" {
   description = "The ID of the VPC"
-  value       = aws_vpc.vpc-main.id
+  value       = aws_vpc.youngyz-vpc.id
   sensitive   = true
 
 }
