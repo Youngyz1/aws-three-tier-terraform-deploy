@@ -26,6 +26,13 @@
         "iam:ListRoles",
         "iam:ListAttachedRolePolicies",
         "iam:ListRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "eks:CreateCluster",
+        "eks:DescribeCluster",
+        "eks:TagResource",
+        "eks:ListClusters",
+        "eks:UpdateClusterVersion",
+        "eks:UpdateClusterConfig",
         "dynamodb:PutItem",
         "dynamodb:GetItem",
         "dynamodb:DescribeTable"
