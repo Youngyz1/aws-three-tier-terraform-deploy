@@ -23,8 +23,9 @@
         "iam:PassRole",
         "iam:TagRole",
         "iam:GetRole",
-        "iam:ListAttachedRolePolicies",
         "iam:ListRoles",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
         "dynamodb:PutItem",
         "dynamodb:GetItem",
         "dynamodb:DescribeTable"
