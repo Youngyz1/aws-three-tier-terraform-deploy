@@ -1,10 +1,11 @@
-output "nginx_ingress_lb_dns" {
-  value = data.aws_lb.nginx_ingress.dns_name
+# Removed outputs that referenced the non-existent AWS LB
+# You can keep other outputs here if needed
+
+# Example placeholder outputs (optional)
+output "nginx_ingress_status" {
+  value = "NGINX Ingress is deployed via Helm; check using kubectl"
 }
 
-output "nginx_lb_ip" {
-  value = data.aws_lb.nginx_ingress.ip_address_type == "ipv4" ? data.aws_lb.nginx_ingress.dns_name : ""
-}
-output "nginx_ingress_load_balancer_hostname" {
-  value = data.aws_lb.nginx_ingress.dns_name
+output "note" {
+  value = "Use 'kubectl get svc -n ingress-nginx' to find the LoadBalancer DNS/IP"
 }
