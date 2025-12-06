@@ -15,6 +15,7 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       DOMAIN_NAME: ofiliyoungyz.site
+      TF_WORKING_DIR: ./ # adjust if needed
     steps:
       # 1️⃣ Checkout repository
       - name: Checkout repository
@@ -52,34 +53,44 @@ jobs:
       # 6️⃣ Terraform Plan & Apply
       - name: Terraform Plan
         run: terraform plan
-
       - name: Terraform Apply
         run: terraform apply -auto-approve
 
+      # 7️⃣ Install kubectl
       - name: Install kubectl
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         run: |
           if ! command -v kubectl &> /dev/null; then
             curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
             chmod +x ./kubectl
             sudo mv ./kubectl /usr/local/bin/kubectl
-          else
-            echo "kubectl already installed"
-            kubectl version --client
           fi
+          kubectl version --client
 
+      # 8️⃣ Update kubeconfig for EKS
       - name: Update kubeconfig for EKS
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         run: aws eks update-kubeconfig --name production-eks-cluster --region ${{ secrets.AWS_REGION }}
 
-      - name: Deploying the ClusterIssuer to EKS
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      # 9️⃣ Wait for NGINX Ingress Load Balancer to be ready
+      - name: Wait for NGINX Ingress LB
+        run: |
+          echo "Waiting for nginx-ingress LB hostname..."
+          for i in {1..30}; do
+            LB_HOST=$(kubectl get svc nginx-ingress-ingress-nginx-controller \
+              -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ -n "$LB_HOST" ]; then
+              echo "LB Hostname found: $LB_HOST"
+              break
+            fi
+            echo "Waiting 10s..."
+            sleep 10
+          done
+
+      # 🔟 Deploy ClusterIssuer
+      - name: Deploy ClusterIssuer
         run: kubectl apply -f ClusterIssuer.yaml
 
-      - name: Deploying argocd ingress rule to EKS
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      # 1️⃣1️⃣ Deploy ArgoCD ingress
+      - name: Deploy ArgoCD ingress
         run: kubectl apply -f ingress-argocd.yaml -n argocd
 
       # # 1️⃣1️⃣ Optional: Destroy resources (for testing only)
